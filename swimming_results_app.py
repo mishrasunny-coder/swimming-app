@@ -257,7 +257,14 @@ def main():
     filtered = df.copy()
 
     if swimmer_name != "All Swimmers":
-        filtered = filtered.loc[filtered["Name"] == swimmer_name]
+        # Case-insensitive matching that handles name order variations
+        # Normalize both search term and CSV names for comparison
+        search_normalized = " ".join(sorted(swimmer_name.lower().split()))
+        filtered = filtered.loc[
+            filtered["Name"].apply(
+                lambda x: " ".join(sorted(str(x).lower().split())) == search_normalized
+            )
+        ]
 
     if event_type != "All Events":
         filtered = filtered.loc[filtered["Event_Type"] == event_type]
