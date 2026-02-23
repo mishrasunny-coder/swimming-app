@@ -8,7 +8,6 @@ Swimming results app with:
 - `src/swimming_app/streamlit_app.py`: main Streamlit application
 - `src/swimming_app/pdf_parser.py`: robust PDF-to-CSV parser
 - `src/swimming_app/run_app.py`: local launcher
-- `CSV/swim_data.sample.csv`: safe sample dataset committed to repo
 
 ## Prerequisites
 - Python 3.12+
@@ -56,7 +55,6 @@ CSV edits on your machine are reflected immediately in the container app.
 ## Data privacy
 - Real datasets are intentionally ignored by git.
 - Keep private data in local files (for example `CSV/swim_data.csv`) and use `SWIM_DATA_PATH`.
-- Share only `CSV/swim_data.sample.csv` in public branches/PRs.
 
 ## Useful commands
 ```bash

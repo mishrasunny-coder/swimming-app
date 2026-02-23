@@ -32,7 +32,6 @@ def resolve_data_path() -> Path:
     if env_data_path:
         candidates.append(Path(env_data_path))
     candidates.append(Path("CSV/swim_data.csv"))
-    candidates.append(Path("CSV/swim_data.sample.csv"))
     return next((p for p in candidates if p.exists()), candidates[0])
 
 
@@ -113,17 +112,13 @@ def load_all_swimming_data() -> pd.DataFrame:
     Load swimming results from CSV path resolved in this order:
     1) SWIM_DATA_PATH env var
     2) CSV/swim_data.csv
-    3) CSV/swim_data.sample.csv
     This file contains all swimming meet results with proper event types already populated.
     Converts Meet_Date to datetime (coerce errors).
     """
     csv_file = resolve_data_path()
 
     if not csv_file.exists():
-        st.error(
-            "Could not find data CSV. Set SWIM_DATA_PATH or provide "
-            "CSV/swim_data.csv (or CSV/swim_data.sample.csv)."
-        )
+        st.error("Could not find data CSV. Set SWIM_DATA_PATH or provide CSV/swim_data.csv.")
 
         return pd.DataFrame()
 

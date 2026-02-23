@@ -15,7 +15,6 @@ def main() -> None:
     if env_data_path:
         candidates.append(Path(env_data_path))
     candidates.append(project_root / "CSV" / "swim_data.csv")
-    candidates.append(project_root / "CSV" / "swim_data.sample.csv")
     csv_file = next((p for p in candidates if p.exists()), candidates[0])
 
     if not app_file.exists():
@@ -25,7 +24,7 @@ def main() -> None:
 
     if not csv_file.exists():
         print("Error: data CSV not found.")
-        print("Set SWIM_DATA_PATH or provide CSV/swim_data.csv (or CSV/swim_data.sample.csv).")
+        print("Set SWIM_DATA_PATH or provide CSV/swim_data.csv.")
 
         sys.exit(1)
 
