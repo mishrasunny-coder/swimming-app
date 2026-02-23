@@ -7,6 +7,8 @@ Swimming Results Database (Streamlit)
 - Handles DQ/NT/invalid times gracefully for charts, "Best", and stats
 """
 
+import os
+
 import re
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +26,15 @@ DQ_LIKE = {"DQ", "DSQ", "DNF", "DNS", "NS", "SCR", "NT", ""}
 
 st.set_page_config(page_title="Swimming Results", layout="wide")
 
+
+def resolve_data_path() -> Path:
+    env_data_path = os.getenv("SWIM_DATA_PATH", "").strip()
+    candidates = []
+    if env_data_path:
+        candidates.append(Path(env_data_path))
+    candidates.append(Path("CSV/swim_data.csv"))
+    candidates.append(Path("CSV/swim_data.sample.csv"))
+    return next((p for p in candidates if p.exists()), candidates[0])
 
 def parse_time_to_seconds(x) -> float:
     """
@@ -99,14 +110,21 @@ def normalize_event_text(x: str) -> str:
 @st.cache_data
 def load_all_swimming_data() -> pd.DataFrame:
     """
-    Load swimming results from CSV/swim_data.csv.
+    Load swimming results from CSV path resolved in this order:
+    1) SWIM_DATA_PATH env var
+    2) CSV/swim_data.csv
+    3) CSV/swim_data.sample.csv
     This file contains all swimming meet results with proper event types already populated.
     Converts Meet_Date to datetime (coerce errors).
     """
-    csv_file = Path("CSV/swim_data.csv")
+    csv_file = resolve_data_path()
 
     if not csv_file.exists():
-        st.error(f"Could not find {csv_file}. Please ensure swim_data.csv exists.")
+        st.error(
+            "Could not find data CSV. Set SWIM_DATA_PATH or provide "
+            "CSV/swim_data.csv (or CSV/swim_data.sample.csv)."
+        )
+
         return pd.DataFrame()
 
     try:
@@ -231,11 +249,14 @@ def main():
         available_swimmers = get_available_swimmers()
 
     if df.empty:
-        st.error("No swimming data found! Ensure CSV/swim_data.csv is available.")
+        st.error("No swimming data found! Set SWIM_DATA_PATH or provide a CSV data file.")
+
         return
 
     # Quick diagnostics (collapsible)
     with st.expander("🔎 Loaded CSV diagnostics", expanded=False):
+        st.caption(f"Data file: {resolve_data_path()}")
+
         st.caption("Events found:")
         st.write(", ".join(sorted(df["Event_Type"].unique())))
         st.caption(

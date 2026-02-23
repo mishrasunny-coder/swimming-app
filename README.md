@@ -2,13 +2,13 @@
 Swimming results app with:
 - PDF-to-CSV parser for meet files
 - Streamlit UI to search swimmers, events, teams, and trends
+- env-based data path so private CSV data stays local
 
 ## Project structure
 - `src/swimming_app/streamlit_app.py`: main Streamlit application
 - `src/swimming_app/pdf_parser.py`: robust PDF-to-CSV parser
 - `src/swimming_app/run_app.py`: local launcher
-- `CSV/swim_data.csv`: active dataset
-- `PDF/`: source meet PDFs
+- `CSV/swim_data.sample.csv`: safe sample dataset committed to repo
 
 ## Prerequisites
 - Python 3.12+
@@ -30,11 +30,17 @@ make run
 ```
 Open: `http://localhost:8501`
 
+Use private local data (recommended):
+```bash
+cp .env.example .env
+export SWIM_DATA_PATH=CSV/swim_data.csv
+make run
+```
 ## Parse a PDF
 ```bash
 python3 src/swimming_app/pdf_parser.py \
   --pdf-path "PDF/<file>.pdf" \
-  --active-csv-path "CSV/swim_data.csv" \
+  --active-csv-path "${SWIM_DATA_PATH:-CSV/swim_data.csv}" \
   --backup-csv-path "codex/swim_data_backup.csv" \
   --mode lenient
 ```
@@ -44,7 +50,13 @@ python3 src/swimming_app/pdf_parser.py \
 make docker-build
 make docker-run
 ```
-This mounts local `CSV/` into the container at `/app/CSV`, so CSV edits on your machine are reflected immediately.
+`make docker-run` mounts local `CSV/` into the container and sets `SWIM_DATA_PATH=/app/CSV/swim_data.csv`.
+CSV edits on your machine are reflected immediately in the container app.
+
+## Data privacy
+- Real datasets are intentionally ignored by git.
+- Keep private data in local files (for example `CSV/swim_data.csv`) and use `SWIM_DATA_PATH`.
+- Share only `CSV/swim_data.sample.csv` in public branches/PRs.
 
 ## Useful commands
 ```bash

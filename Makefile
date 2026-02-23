@@ -5,6 +5,7 @@ IMAGE ?= swimming-app:latest
 PORT ?= 8501
 CONTAINER ?= swimming-app
 CSV_DIR ?= $(CURDIR)/CSV
+DATA_PATH ?= /app/CSV/swim_data.csv
 POETRY ?= $(shell if command -v poetry >/dev/null 2>&1; then command -v poetry; \
 	elif [ -x "$$HOME/.local/bin/poetry" ]; then echo "$$HOME/.local/bin/poetry"; \
 	elif [ -x "$$HOME/Library/Python/3.12/bin/poetry" ]; then echo "$$HOME/Library/Python/3.12/bin/poetry"; \
@@ -29,8 +30,7 @@ help:
 	@echo "  make pre-push     - Required quality gate before push/PR"
 	@echo "  make run          - Run Streamlit app locally via Poetry"
 	@echo "  make docker-build - Build Docker image ($(IMAGE))"
-	@echo "  make docker-run   - Run Docker with local CSV mounted (live data)"
-	@echo "  make docker-stop  - Stop/remove running app container"
+	@echo "  make docker-run   - Run Docker with local CSV mounted (live private data)"
 
 install-poetry:
 	@if command -v brew >/dev/null 2>&1; then \
@@ -74,10 +74,12 @@ docker-build:
 docker-run:
 	docker run -d --name $(CONTAINER) \
 		-p $(PORT):8501 \
+		-e SWIM_DATA_PATH=$(DATA_PATH) \
 		-v $(CSV_DIR):/app/CSV \
 		$(IMAGE)
 	@echo "App running at http://localhost:$(PORT)"
 	@echo "Using mounted CSV directory: $(CSV_DIR)"
+	@echo "Using SWIM_DATA_PATH: $(DATA_PATH)"
 
 docker-stop:
 	docker rm -f $(CONTAINER) || true
