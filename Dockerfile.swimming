@@ -23,6 +23,7 @@ RUN poetry install --only main --no-root
 COPY src/swimming_app src/swimming_app
 COPY CSV/swim_data.sample.csv CSV/swim_data.sample.csv
 
+
 # Create a non-root user
 RUN useradd -m -u 1000 swimming && chown -R swimming:swimming /app
 USER swimming

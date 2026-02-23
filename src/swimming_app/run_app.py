@@ -2,6 +2,7 @@
 """Launcher script for the Swimming Results Database."""
 
 import os
+
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ def main() -> None:
     candidates.append(project_root / "CSV" / "swim_data.sample.csv")
     csv_file = next((p for p in candidates if p.exists()), candidates[0])
 
+
     if not app_file.exists():
         print(f"Error: {app_file} not found")
         print("Run this command from the project root.")
@@ -26,6 +28,7 @@ def main() -> None:
     if not csv_file.exists():
         print("Error: data CSV not found.")
         print("Set SWIM_DATA_PATH or provide CSV/swim_data.csv (or CSV/swim_data.sample.csv).")
+
         sys.exit(1)
 
     with csv_file.open("r", encoding="utf-8") as f:
@@ -33,6 +36,7 @@ def main() -> None:
 
     print(f"Using data file: {csv_file}")
     print(f"Found {row_count} data rows")
+
     print("Starting Streamlit app at http://localhost:8501")
 
     try:

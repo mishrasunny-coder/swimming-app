@@ -31,7 +31,6 @@ help:
 	@echo "  make run          - Run Streamlit app locally via Poetry"
 	@echo "  make docker-build - Build Docker image ($(IMAGE))"
 	@echo "  make docker-run   - Run Docker with local CSV mounted (live private data)"
-	@echo "  make docker-stop  - Stop/remove running app container"
 
 install-poetry:
 	@if command -v brew >/dev/null 2>&1; then \

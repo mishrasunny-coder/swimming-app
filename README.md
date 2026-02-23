@@ -9,7 +9,6 @@ Swimming results app with:
 - `src/swimming_app/pdf_parser.py`: robust PDF-to-CSV parser
 - `src/swimming_app/run_app.py`: local launcher
 - `CSV/swim_data.sample.csv`: safe sample dataset committed to repo
-- `PDF/`: source meet PDFs
 
 ## Prerequisites
 - Python 3.12+
@@ -37,7 +36,6 @@ cp .env.example .env
 export SWIM_DATA_PATH=CSV/swim_data.csv
 make run
 ```
-
 ## Parse a PDF
 ```bash
 python3 src/swimming_app/pdf_parser.py \

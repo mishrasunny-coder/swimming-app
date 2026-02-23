@@ -8,6 +8,7 @@ Swimming Results Database (Streamlit)
 """
 
 import os
+
 import re
 from datetime import datetime
 from pathlib import Path
@@ -34,7 +35,6 @@ def resolve_data_path() -> Path:
     candidates.append(Path("CSV/swim_data.csv"))
     candidates.append(Path("CSV/swim_data.sample.csv"))
     return next((p for p in candidates if p.exists()), candidates[0])
-
 
 def parse_time_to_seconds(x) -> float:
     """
@@ -124,6 +124,7 @@ def load_all_swimming_data() -> pd.DataFrame:
             "Could not find data CSV. Set SWIM_DATA_PATH or provide "
             "CSV/swim_data.csv (or CSV/swim_data.sample.csv)."
         )
+
         return pd.DataFrame()
 
     try:
@@ -249,11 +250,13 @@ def main():
 
     if df.empty:
         st.error("No swimming data found! Set SWIM_DATA_PATH or provide a CSV data file.")
+
         return
 
     # Quick diagnostics (collapsible)
     with st.expander("🔎 Loaded CSV diagnostics", expanded=False):
         st.caption(f"Data file: {resolve_data_path()}")
+
         st.caption("Events found:")
         st.write(", ".join(sorted(df["Event_Type"].unique())))
         st.caption(
