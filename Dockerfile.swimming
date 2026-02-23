@@ -1,0 +1,44 @@
+FROM python:3.12-slim
+
+# Runtime env + Poetry behavior
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false
+
+# Set working directory
+WORKDIR /app
+
+# Install minimal system deps + Poetry
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir poetry==1.8.4
+
+# Install Python dependencies via Poetry
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --only main --no-root
+
+# Copy app + data
+COPY src/swimming_app src/swimming_app
+COPY CSV/swim_data.sample.csv CSV/swim_data.sample.csv
+
+# Create a non-root user
+RUN useradd -m -u 1000 swimming && chown -R swimming:swimming /app
+USER swimming
+
+# Expose port
+EXPOSE 8501
+
+# Set environment variables
+ENV STREAMLIT_SERVER_PORT=8501
+ENV STREAMLIT_SERVER_HEADLESS=true
+ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
+ENV SWIM_DATA_PATH=/app/CSV/swim_data.sample.csv
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# Run the Streamlit app
+CMD ["poetry", "run", "streamlit", "run", "src/swimming_app/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Sensitive/local data (keep out of git)
+CSV/*.csv
+!CSV/swim_data.sample.csv
+codex/*.csv
+PDF/*.pdf
+.DS_Store
