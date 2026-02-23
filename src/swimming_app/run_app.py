@@ -2,7 +2,6 @@
 """Launcher script for the Swimming Results Database."""
 
 import os
-
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +17,6 @@ def main() -> None:
     candidates.append(project_root / "CSV" / "swim_data.csv")
     candidates.append(project_root / "CSV" / "swim_data.sample.csv")
     csv_file = next((p for p in candidates if p.exists()), candidates[0])
-
 
     if not app_file.exists():
         print(f"Error: {app_file} not found")

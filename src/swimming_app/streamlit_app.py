@@ -8,7 +8,6 @@ Swimming Results Database (Streamlit)
 """
 
 import os
-
 import re
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +34,7 @@ def resolve_data_path() -> Path:
     candidates.append(Path("CSV/swim_data.csv"))
     candidates.append(Path("CSV/swim_data.sample.csv"))
     return next((p for p in candidates if p.exists()), candidates[0])
+
 
 def parse_time_to_seconds(x) -> float:
     """
