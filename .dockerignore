@@ -1,0 +1,14 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+PDF/
+codex/
+data/
+agent-rules/
+.env
+.env.*
+.DS_Store

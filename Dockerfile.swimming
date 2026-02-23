@@ -1,22 +1,27 @@
 FROM python:3.12-slim
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Runtime env + Poetry behavior
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install minimal system deps + Poetry
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir poetry==1.8.4
 
-# Copy the swimming app and data files
-COPY swimming_results_app.py .
-COPY *.csv .
-COPY *.pdf .
+# Install Python dependencies via Poetry
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --only main --no-root
+
+# Copy app + data
+COPY src/swimming_app src/swimming_app
+COPY CSV/swim_data.csv CSV/swim_data.csv
 
 # Create a non-root user
 RUN useradd -m -u 1000 swimming && chown -R swimming:swimming /app
@@ -35,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 # Run the Streamlit app
-CMD ["streamlit", "run", "swimming_results_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+CMD ["poetry", "run", "streamlit", "run", "src/swimming_app/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

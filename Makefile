@@ -1,92 +1,83 @@
-# Makefile
+.PHONY: help install lock check format format-check lint pre-push run docker-build docker-run docker-stop
+.PHONY: install-poetry
 
-.PHONY: setup start stop clean deploy-minikube cleanup-minikube k8s-logs k8s-status k8s-access k8s-stop-access \
-	deploy-swimming-minikube cleanup-swimming-minikube update-swimming-data swimming-status swimming-logs \
-	swimming-start-access swimming-stop-access swimming-access
+IMAGE ?= swimming-app:latest
+PORT ?= 8501
+CONTAINER ?= swimming-app
+CSV_DIR ?= $(CURDIR)/CSV
+POETRY ?= $(shell if command -v poetry >/dev/null 2>&1; then command -v poetry; \
+	elif [ -x "$$HOME/.local/bin/poetry" ]; then echo "$$HOME/.local/bin/poetry"; \
+	elif [ -x "$$HOME/Library/Python/3.12/bin/poetry" ]; then echo "$$HOME/Library/Python/3.12/bin/poetry"; \
+	fi)
 
-# Install Poetry and its dependencies
-install:
-	@echo "Installing Poetry..."
-	curl -sSL https://install.python-poetry.org | python -
-	@echo "Installing dependencies with Poetry..."
-	poetry install
+guard-poetry:
+	@if [ -z "$(POETRY)" ]; then \
+		echo "Poetry is not installed."; \
+		echo "Run: make install-poetry"; \
+		exit 1; \
+	fi
 
+help:
+	@echo "Available commands:"
+	@echo "  make install-poetry - Install Poetry"
+	@echo "  make install      - Install Python dependencies with Poetry"
+	@echo "  make lock         - Regenerate poetry.lock from pyproject.toml"
+	@echo "  make check        - Syntax-check core scripts"
+	@echo "  make format       - Auto-format code with Ruff"
+	@echo "  make format-check - Verify formatting without changes"
+	@echo "  make lint         - Run Ruff lint checks"
+	@echo "  make pre-push     - Required quality gate before push/PR"
+	@echo "  make run          - Run Streamlit app locally via Poetry"
+	@echo "  make docker-build - Build Docker image ($(IMAGE))"
+	@echo "  make docker-run   - Run Docker with local CSV mounted (live data)"
+	@echo "  make docker-stop  - Stop/remove running app container"
 
-setup:
-	cd infrastructure/docker && docker-compose build
+install-poetry:
+	@if command -v brew >/dev/null 2>&1; then \
+		echo "Installing Poetry via Homebrew..."; \
+		brew list poetry >/dev/null 2>&1 || brew install poetry; \
+	else \
+		echo "Homebrew not found. Falling back to Poetry installer script..."; \
+		curl -sSL https://install.python-poetry.org | python3 -; \
+	fi
+	@echo "Poetry installed. If 'poetry' is not found, run:"
+	@echo "  export PATH=\"$$HOME/.local/bin:$$PATH\""
 
-start:
-	cd infrastructure/docker && docker-compose up -d
+install: guard-poetry
+	$(POETRY) install
 
-stop:
-	cd infrastructure/docker && docker-compose down
+lock: guard-poetry
+	$(POETRY) lock
 
-clean:
-	cd infrastructure/docker && docker-compose down --rmi all -v --remove-orphans
+check: guard-poetry
+	$(POETRY) run python -m py_compile src/swimming_app/streamlit_app.py src/swimming_app/run_app.py src/swimming_app/pdf_parser.py
 
-# Minikube deployment targets
-deploy-minikube:
-	@echo "Deploying to Minikube..."
-	./scripts/deploy-minikube.sh
+format: guard-poetry
+	$(POETRY) run ruff format src
+	$(POETRY) run ruff check --fix src
 
-cleanup-minikube:
-	@echo "Cleaning up Minikube deployment..."
-	./scripts/cleanup-minikube.sh
+format-check: guard-poetry
+	$(POETRY) run ruff format --check src
 
-k8s-status:
-	@echo "Checking Kubernetes status..."
-	kubectl get all -n flask-app
+lint: guard-poetry
+	$(POETRY) run ruff check src
 
-k8s-logs:
-	@echo "Flask Backend logs:"
-	kubectl logs -f deployment/flask-backend -n flask-app --tail=50 &
-	@echo "Streamlit Frontend logs:"
-	kubectl logs -f deployment/streamlit-frontend -n flask-app --tail=50
+pre-push: format-check lint check
+	@echo "Pre-push checks passed."
 
-k8s-access:
-	@echo "Starting local access to Kubernetes apps..."
-	./scripts/start-local-access.sh
+run: guard-poetry
+	$(POETRY) run streamlit run src/swimming_app/streamlit_app.py --server.address localhost --server.port 8501
 
-k8s-stop-access:
-	@echo "Stopping local access to Kubernetes apps..."
-	./scripts/stop-local-access.sh
+docker-build:
+	docker build -f Dockerfile.swimming -t $(IMAGE) .
 
-# Swimming App Minikube deployment targets
-deploy-swimming-minikube:
-	@echo "Deploying Swimming App to Minikube..."
-	./scripts/deploy-swimming-minikube.sh
+docker-run:
+	docker run -d --name $(CONTAINER) \
+		-p $(PORT):8501 \
+		-v $(CSV_DIR):/app/CSV \
+		$(IMAGE)
+	@echo "App running at http://localhost:$(PORT)"
+	@echo "Using mounted CSV directory: $(CSV_DIR)"
 
-cleanup-swimming-minikube:
-	@echo "Cleaning up Swimming App from Minikube..."
-	./scripts/cleanup-swimming-minikube.sh
-
-update-swimming-data:
-	@echo "Updating Swimming App data (rebuilds image and restarts deployment)..."
-	./scripts/update-swimming-data.sh
-
-swimming-status:
-	@echo "Checking Swimming App Kubernetes status..."
-	@echo "Pods:"
-	@kubectl get pods -n swimming-app
-	@echo ""
-	@echo "Services:"
-	@kubectl get services -n swimming-app
-	@echo ""
-	@echo "Deployment:"
-	@kubectl get deployment -n swimming-app
-
-swimming-logs:
-	@echo "Viewing Swimming App logs (Ctrl+C to exit)..."
-	@kubectl logs -f deployment/swimming-app -n swimming-app --tail=50
-
-swimming-start-access:
-	@echo "Starting Swimming App access in detached mode..."
-	./scripts/start-swimming-access.sh
-
-swimming-stop-access:
-	@echo "Stopping Swimming App access..."
-	./scripts/stop-swimming-access.sh
-
-swimming-access:
-	@echo "Opening Swimming App in browser (foreground mode)..."
-	@minikube service swimming-app-service -n swimming-app
+docker-stop:
+	docker rm -f $(CONTAINER) || true
