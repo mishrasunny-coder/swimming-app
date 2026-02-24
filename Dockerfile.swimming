@@ -27,18 +27,17 @@ COPY src/swimming_app src/swimming_app
 RUN useradd -m -u 1000 swimming && chown -R swimming:swimming /app
 USER swimming
 
-# Expose port
-EXPOSE 8501
+# Expose default Cloud Run port
+EXPOSE 8080
 
 # Set environment variables
-ENV STREAMLIT_SERVER_PORT=8501
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV SWIM_DATA_PATH=/app/CSV/swim_data.csv
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+    CMD sh -c 'curl -f "http://localhost:${PORT:-8080}/_stcore/health" || exit 1'
 
 # Run the Streamlit app
-CMD ["poetry", "run", "streamlit", "run", "src/swimming_app/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+CMD ["sh", "-c", "poetry run streamlit run src/swimming_app/streamlit_app.py --server.address 0.0.0.0 --server.port ${PORT:-8080}"]

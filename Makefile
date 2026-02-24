@@ -73,7 +73,7 @@ docker-build:
 
 docker-run:
 	docker run -d --name $(CONTAINER) \
-		-p $(PORT):8501 \
+		-p $(PORT):8080 \
 		-e SWIM_DATA_PATH=$(DATA_PATH) \
 		-v $(CSV_DIR):/app/CSV \
 		$(IMAGE)
