@@ -5,13 +5,13 @@ This checklist covers terminal-only setup from authentication to billing verific
 ## 0) Global Variables
 
 ```bash
-export ORG_ID="640978208747"
-export BILLING_ID="01A676-7A6370-EB1DA7"
+export ORG_ID="YOUR_ORG_ID"
+export BILLING_ID="YOUR_BILLING_ACCOUNT_ID"
 export REGION="us-central1"
 
-export DEV_PROJECT="swim-dev-123185"
-export STAGE_PROJECT="swim-stage-123185"
-export PROD_PROJECT="swim-prod-123185"
+export DEV_PROJECT="YOUR_DEV_PROJECT_ID"
+export STAGE_PROJECT="YOUR_STAGE_PROJECT_ID"
+export PROD_PROJECT="YOUR_PROD_PROJECT_ID"
 ```
 
 ## 1) Install and Verify gcloud
@@ -27,7 +27,7 @@ gcloud auth login
 gcloud auth list
 ```
 
-Expected active account: `mishrasunny123185@gmail.com`.
+Expected active account: `your-email@example.com`.
 
 ## 3) (Optional) Verify Organization Access
 

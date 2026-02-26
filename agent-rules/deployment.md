@@ -6,9 +6,9 @@ This runbook captures the exact setup path used for this repo.
 
 - Organization ID: `your_org_id`
 - Projects:
-  - Dev: `swim-dev-123185`
-  - Stage: `swim-stage-123185`
-  - Prod: `swim-prod-123185`
+  - Dev: `your-dev-project-id`
+  - Stage: `your-stage-project-id`
+  - Prod: `your-prod-project-id`
 - Billing account ID: `your_billing_id`
 
 > Note: We previously created and deleted `swimming-app-prod`.
@@ -18,24 +18,77 @@ This runbook captures the exact setup path used for this repo.
 Your org requires environment tags on projects.
 
 - Tag key: `environment`
-- Tag values are already created and exported:
-  - `DEV_TAG_VALUE`
-  - `STAGE_TAG_VALUE`
-  - `PROD_TAG_VALUE`
+- Tag values:
+  - `development`
+  - `staging`
+  - `production`
 
-Bind tags (already done, command for reference):
+Create tag key (org-level):
+```bash
+export ORG_ID="your_org_id"
+
+gcloud resource-manager tags keys create environment \
+  --parent="organizations/${ORG_ID}" \
+  --description="Environment classification"
+```
+
+Get tag key id and namespaced name:
+```bash
+gcloud resource-manager tags keys list \
+  --parent="organizations/${ORG_ID}"
+
+TAG_KEY_ID="$(gcloud resource-manager tags keys list \
+  --parent="organizations/${ORG_ID}" \
+  --filter="shortName=environment" \
+  --format='value(name)')"
+```
+
+Create tag values (under `environment` key):
+```bash
+gcloud resource-manager tags values create development \
+  --parent="$TAG_KEY_ID" \
+  --description="Development environment"
+
+gcloud resource-manager tags values create staging \
+  --parent="$TAG_KEY_ID" \
+  --description="Staging environment"
+
+gcloud resource-manager tags values create production \
+  --parent="$TAG_KEY_ID" \
+  --description="Production environment"
+```
+
+Export tag values for later binding:
+```bash
+export DEV_TAG_VALUE="$(gcloud resource-manager tags values list \
+  --parent="$TAG_KEY_ID" \
+  --filter='shortName=development' \
+  --format='value(name)')"
+
+export STAGE_TAG_VALUE="$(gcloud resource-manager tags values list \
+  --parent="$TAG_KEY_ID" \
+  --filter='shortName=staging' \
+  --format='value(name)')"
+
+export PROD_TAG_VALUE="$(gcloud resource-manager tags values list \
+  --parent="$TAG_KEY_ID" \
+  --filter='shortName=production' \
+  --format='value(name)')"
+```
+
+Bind tag values to projects:
 
 ```bash
 gcloud resource-manager tags bindings create \
-  --parent=//cloudresourcemanager.googleapis.com/projects/swim-dev-123185 \
+  --parent=//cloudresourcemanager.googleapis.com/projects/your-dev-project-id \
   --tag-value=$DEV_TAG_VALUE
 
 gcloud resource-manager tags bindings create \
-  --parent=//cloudresourcemanager.googleapis.com/projects/swim-stage-123185 \
+  --parent=//cloudresourcemanager.googleapis.com/projects/your-stage-project-id \
   --tag-value=$STAGE_TAG_VALUE
 
 gcloud resource-manager tags bindings create \
-  --parent=//cloudresourcemanager.googleapis.com/projects/swim-prod-123185 \
+  --parent=//cloudresourcemanager.googleapis.com/projects/your-prod-project-id \
   --tag-value=$PROD_TAG_VALUE
 ```
 
@@ -65,7 +118,7 @@ gcloud services enable \
 Set variables:
 
 ```bash
-export PROJECT_ID="swim-dev-123185"     # change per env
+export PROJECT_ID="your-dev-project-id"     # change per env
 export REGION="us-central1"
 export ENV="dev"                         # dev | stage | prod
 export REPO="swimming-app"
