@@ -107,10 +107,6 @@ gcloud compute security-policies create "$ARMOR_POLICY_NAME"
 
 Allow your IP at priority `1000`:
 ```bash
-gcloud compute security-policies rules update 1000 \
-  --security-policy="$ARMOR_POLICY_NAME" \
-  --src-ip-ranges="$YOUR_PUBLIC_IP" \
-  --action=allow || \
 gcloud compute security-policies rules create 1000 \
   --security-policy="$ARMOR_POLICY_NAME" \
   --src-ip-ranges="$YOUR_PUBLIC_IP" \
