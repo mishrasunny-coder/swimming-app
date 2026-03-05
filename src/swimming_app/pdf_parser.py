@@ -38,6 +38,7 @@ FIELDS = [
 
 STATUS_VALUES = {"DQ", "DNF", "DNS", "NS", "DW", "SCR", "DSQ"}
 RELAY_MARKER_ARTIFACT_RE = re.compile(r"(?:\b[1-4]\)|\d[1-4]\))")
+TIME_TOKEN_RE = re.compile(r"^(?:(?:0|[1-9]\d*):\d{2}\.\d{2}|\d{1,2}\.\d{2})$")
 
 
 @dataclass
@@ -130,6 +131,159 @@ def infer_event_age_bounds(event_name: str) -> tuple[int, int] | None:
         age = int(m.group(1))
         return age, age
     return None
+
+
+def infer_event_distance(event_name: str) -> int | None:
+    m = re.search(
+        r"\b(\d{2,3})\s*(?:Yard|Free|Freestyle|Back|Backstroke|Breast|Breaststroke|Fly|Butterfly|IM|Medley)\b",
+        event_name,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return int(m.group(1))
+
+
+def is_valid_time_token(value: str) -> bool:
+    return bool(TIME_TOKEN_RE.match(value.strip()))
+
+
+def extract_family_f_packed_payload(
+    line: str,
+) -> tuple[str, str, str, str, str] | None:
+    m = re.match(
+        r"^(?P<points>\d+|---)\s+(?P<improv>-?\d+\.\d+|---)\s*(?P<payload>.+?)Y(?P<status>DQ)?\s+F\s+(?P<name>.+)$",
+        line.strip(),
+    )
+    if not m:
+        return None
+    return (
+        m.group("points").strip(),
+        m.group("improv").strip(),
+        m.group("payload").strip(),
+        (m.group("status") or "").strip(),
+        m.group("name").strip(),
+    )
+
+
+def _score_family_f_age(age: int, event_name: str) -> int:
+    bounds = infer_event_age_bounds(event_name)
+    if bounds:
+        low, high = bounds
+        if low <= age <= high:
+            return 80
+        return -200
+    if 5 <= age <= 25:
+        return 30
+    if 0 <= age <= 99:
+        return -10
+    return -200
+
+
+def decode_family_f_place_age_time(payload: str, event_name: str) -> tuple[str, str, str] | None:
+    compact = re.sub(r"\s+", "", payload)
+    if not compact:
+        return None
+
+    candidates: list[tuple[int, str, str, str]] = []
+    for split_idx in range(1, len(compact)):
+        prefix = compact[:split_idx]
+        raw_time = compact[split_idx:]
+        if not is_valid_time_token(raw_time):
+            continue
+
+        place_age_pairs: list[tuple[str, str]] = []
+        if prefix.startswith("---"):
+            age_s = prefix[3:]
+            if age_s.isdigit() and 1 <= len(age_s) <= 2:
+                place_age_pairs.append(("---", age_s))
+        elif prefix.isdigit():
+            for age_len in (2, 1):
+                if len(prefix) <= age_len:
+                    continue
+                age_s = prefix[-age_len:]
+                place_s = prefix[:-age_len]
+                if place_s.isdigit():
+                    place_age_pairs.append((place_s, age_s))
+
+        for place_s, age_s in place_age_pairs:
+            age_i = int(age_s)
+            score = 0
+            score += _score_family_f_age(age_i, event_name)
+            score += len(raw_time) * 5  # Prefer longer time suffix (e.g., 24.59 over 4.59).
+
+            if place_s != "---":
+                place_i = int(place_s)
+                if place_i < 1:
+                    continue
+                if len(place_s) <= 2:
+                    score += 20
+                elif len(place_s) == 3:
+                    score -= 20
+                else:
+                    score -= 40
+
+            if ":" not in raw_time:
+                seconds = float(raw_time)
+                if seconds < 10:
+                    score -= 25
+                distance = infer_event_distance(event_name)
+                if distance and distance >= 50 and seconds < 10:
+                    score -= 60
+                if distance and distance >= 100 and seconds < 30:
+                    score -= 40
+
+            candidates.append((score, place_s, age_s, raw_time))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    _score, place_s, age_s, raw_time = candidates[0]
+    return place_s, age_s, raw_time
+
+
+def decode_family_f_place_age_status(payload: str, event_name: str) -> tuple[str, str, str] | None:
+    compact = re.sub(r"\s+", "", payload)
+    if not compact:
+        return None
+
+    status_tokens = sorted(STATUS_VALUES, key=len, reverse=True)
+    candidates: list[tuple[int, str, str, str]] = []
+    for status in status_tokens:
+        if not compact.endswith(status):
+            continue
+        prefix = compact[: -len(status)]
+        if not prefix:
+            continue
+
+        place_age_pairs: list[tuple[str, str]] = []
+        if prefix.startswith("---"):
+            age_s = prefix[3:]
+            if age_s.isdigit() and 1 <= len(age_s) <= 2:
+                place_age_pairs.append(("---", age_s))
+        elif prefix.isdigit():
+            for age_len in (2, 1):
+                if len(prefix) <= age_len:
+                    continue
+                age_s = prefix[-age_len:]
+                place_s = prefix[:-age_len]
+                if place_s.isdigit():
+                    place_age_pairs.append((place_s, age_s))
+
+        for place_s, age_s in place_age_pairs:
+            age_i = int(age_s)
+            score = _score_family_f_age(age_i, event_name)
+            if place_s != "---":
+                if int(place_s) < 1:
+                    continue
+                score += 20 if len(place_s) <= 2 else -20
+            candidates.append((score, place_s, age_s, status))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    _score, place_s, age_s, status = candidates[0]
+    return place_s, age_s, status
 
 
 def split_age_place_token(token: str, event_name: str) -> tuple[str, str]:
@@ -1930,10 +2084,12 @@ def parse_family_f(lines: list[str]) -> ParseContext:
     event_pattern = re.compile(r"^Event\s*#\s*\d+\s+(.*)$")
     team_pattern = re.compile(r"^(.*?)\s+\[([A-Za-z0-9\-]+)\]$")
     result_time_pattern = re.compile(
-        r"^(?P<points>\d+|---)\s+(?P<improv>-?\d+\.\d+|---)\s*(?P<place>\d+|---)(?P<age>\d{1,2})\s*(?P<time>\d+:\d{2}\.\d{2}|\d{1,2}\.\d{2})Y(?P<status>DQ)?\s+F\s+(?P<name>.+)$"
+        r"^(?P<points>\d+|---)\s+(?P<improv>-?\d+\.\d+|---)\s*(?P<token>(?:---|\d)+)"
+        r"(?P<status>DQ|DNF|DNS|NS|DW|SCR|DSQ)\s+F\s+(?P<name>.+)$"
     )
     result_status_pattern = re.compile(
-        r"^(?P<points>\d+|---)\s+(?P<improv>-?\d+\.\d+|---)\s*(?P<place>\d+|---)(?P<age>\d{1,2})\s*(?P<status>DQ|DNF|DNS|NS|DW|SCR|DSQ)\s+F\s+(?P<name>.+)$"
+        r"^(?P<points>\d+|---)\s+(?P<improv>-?\d+\.\d+|---)\s*(?P<place>\d+|---)(?P<age>\d{1,2})\s*"
+        r"(?P<status>DQ|DNF|DNS|NS|DW|SCR|DSQ)\s+F\s+(?P<name>.+)$"
     )
     status_note_pattern = re.compile(r"^\d+[A-Z]\s+.+$")
 
@@ -1979,14 +2135,16 @@ def parse_family_f(lines: list[str]) -> ParseContext:
             i += 1
             continue
 
-        m = result_time_pattern.match(line)
-        if m:
-            place = m.group("place").strip()
-            age = m.group("age").strip()
-            status = (m.group("status") or "").strip()
-            raw_time = m.group("time").strip()
-            name = convert_name(m.group("name").strip())
+        extracted = extract_family_f_packed_payload(line)
+        if extracted:
+            _points, _improv, payload, status, name_raw = extracted
+            decoded = decode_family_f_place_age_time(payload, current_event)
+            if not decoded:
+                i += 1
+                continue
 
+            place, age, raw_time = decoded
+            name = convert_name(name_raw)
             rank = ""
             notes = ""
             time = raw_time
@@ -2010,6 +2168,43 @@ def parse_family_f(lines: list[str]) -> ParseContext:
                     "Age": age,
                     "Rank": rank,
                     "Time": time,
+                    "Team": current_team,
+                    "Notes": notes,
+                    "Event_Type": current_event,
+                }
+            )
+            ctx.mark_event_has_row()
+            i += 1
+            continue
+
+        m = result_time_pattern.match(line)
+        if m:
+            token = m.group("token").strip()
+            status = m.group("status").strip()
+            name = convert_name(m.group("name").strip())
+            decoded = decode_family_f_place_age_status(token + status, current_event)
+            if not decoded:
+                i += 1
+                continue
+
+            place, age, parsed_status = decoded
+            rank = parsed_status if parsed_status in STATUS_VALUES else ""
+            notes = ""
+            if rank in STATUS_VALUES and i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if status_note_pattern.match(next_line):
+                    notes = next_line
+            elif place != "---":
+                rank = format_rank(place)
+
+            ctx.rows.append(
+                {
+                    "Meet_Name": ctx.meet_name,
+                    "Meet_Date": ctx.meet_date,
+                    "Name": name,
+                    "Age": age,
+                    "Rank": rank,
+                    "Time": "",
                     "Team": current_team,
                     "Notes": notes,
                     "Event_Type": current_event,
@@ -2385,6 +2580,56 @@ def validate(ctx: ParseContext, mode: str = "strict") -> ValidationResult:
                 )
         if "Relay" not in row["Event_Type"] and not row["Age"].strip():
             errors.append(f"Content sanity failed: missing age for individual row {row_idx}")
+        if ctx.family != "F" or "Relay" in row["Event_Type"]:
+            continue
+
+        age_s = row.get("Age", "").strip()
+        event_name = row.get("Event_Type", "")
+        if not age_s.isdigit():
+            msg = f"Family F sanity failed: non-numeric age at row {row_idx}"
+            if mode == "lenient":
+                warnings.append(msg.replace("failed", "warning"))
+            else:
+                errors.append(msg)
+            continue
+
+        age_i = int(age_s)
+        bounds = infer_event_age_bounds(event_name)
+        if bounds:
+            low, high = bounds
+            if not (low <= age_i <= high):
+                msg = (
+                    "Family F sanity failed: age out of bounds "
+                    f"({age_i} not in {low}-{high}) at row {row_idx}"
+                )
+                if mode == "lenient":
+                    warnings.append(msg.replace("failed", "warning"))
+                else:
+                    errors.append(msg)
+
+        time_s = row.get("Time", "").strip()
+        if time_s and not is_valid_time_token(time_s):
+            msg = f"Family F sanity failed: malformed time '{time_s}' at row {row_idx}"
+            if mode == "lenient":
+                warnings.append(msg.replace("failed", "warning"))
+            else:
+                errors.append(msg)
+
+        rank_s = row.get("Rank", "").strip()
+        m_rank = re.match(r"^(\d+)(?:st|nd|rd|th)$", rank_s)
+        if m_rank and time_s and ":" not in time_s:
+            rank_num = int(m_rank.group(1))
+            time_val = float(time_s)
+            distance = infer_event_distance(event_name)
+            if rank_num >= 100 and time_val < 10 and (distance is None or distance >= 50):
+                msg = (
+                    "Family F sanity failed: implausible rank/time combination "
+                    f"({rank_s}, {time_s}) at row {row_idx}"
+                )
+                if mode == "lenient":
+                    warnings.append(msg.replace("failed", "warning"))
+                else:
+                    errors.append(msg)
 
     relay_rows = [row for row in rows if "Relay" in row["Event_Type"]]
     for _row_idx, row in enumerate(relay_rows, start=1):
