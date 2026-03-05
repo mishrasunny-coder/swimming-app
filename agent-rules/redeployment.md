@@ -1,6 +1,6 @@
 # Redeployment Runbook (Cloud Run + LB + IP Allowlist)
 
-Use this after parsing new data or shipping code changes.
+Use this after parsing new data or shipping code changes. This only requires pushing code to staging and prod
 
 ## 1) Set Variables
 
@@ -10,10 +10,50 @@ export REGION="us-central1"
 export SERVICE="swimming-app"
 export REPO="swimming-app"
 export IMAGE_NAME="swimming-app"
-export TAG="dev-v2"                   # set a new tag each deploy
+export TAG="dev-v5"                   # set a new tag each deploy
 export BUCKET="${PROJECT_ID}-swim-data"
 export ARMOR_POLICY_NAME="your-dev-armor"
 export YOUR_PUBLIC_IP="$(curl -4 -s https://ifconfig.me)/32"
+export SOURCE_IMAGE_PROJECT_ID="your dev project id"
+```
+
+
+If Bucket does not exist then create
+
+```bash
+gcloud config set project "$PROJECT_ID"
+gcloud storage buckets create "gs://${BUCKET}" \
+  --project="$PROJECT_ID" \
+  --location="$REGION"
+```
+
+Then to validate whether bucket was created succcessfully run
+```bash
+gcloud storage buckets describe "gs://${BUCKET}"
+```
+
+Then create SA for each environment (dev/stage/prod) wherever you are deploying your code to bind SA with IAM permissions for the bucket
+
+```bash
+gcloud iam service-accounts create "swimming-app-prod-sa" \
+  --project="$PROJECT_ID" \
+  --display-name="Swimming App prod runtime SA"
+```
+
+Verify SA exists
+```bash
+gcloud iam service-accounts list --project="$PROJECT_ID" \
+  --filter="email:swimming-app-prod-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --format="value(email)"
+```
+
+No add Bucket Read Permissions for this service account
+
+```bash
+export SA_EMAIL="swimming-app-prod-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectViewer"
 ```
 
 ## 2) Upload Latest CSV to GCS
@@ -22,17 +62,27 @@ export YOUR_PUBLIC_IP="$(curl -4 -s https://ifconfig.me)/32"
 gcloud storage cp CSV/swim_data.csv "gs://${BUCKET}/swim_data.csv"
 ```
 
-## 3) Build and Push New Image Tag
+Add Cross Project Permission (in dev project)
 
+First step is to enable google api
 ```bash
-gcloud builds submit \
-  --project="$PROJECT_ID" \
-  --config=cloudbuild.yaml \
-  --substitutions=_REGION="$REGION",_REPO="$REPO",_IMAGE_NAME="$IMAGE_NAME",_TAG="$TAG" \
-  .
+gcloud services enable run.googleapis.com --project="$PROJECT_ID"
 ```
 
-## 4) Deploy Cloud Run (LB-Compatible Ingress + Mounted Data)
+Then run the following
+
+```bash
+TARGET_PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+TARGET_RUN_AGENT="service-${TARGET_PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com"
+
+gcloud artifacts repositories add-iam-policy-binding "$REPO" \
+  --project="$SOURCE_IMAGE_PROJECT_ID" \
+  --location="$REGION" \
+  --member="serviceAccount:${TARGET_RUN_AGENT}" \
+  --role="roles/artifactregistry.reader"
+```
+
+## 3) Deploy Cloud Run (LB-Compatible Ingress + Mounted Data)
 
 ```bash
 gcloud run deploy "$SERVICE" \
@@ -45,7 +95,7 @@ gcloud run deploy "$SERVICE" \
   --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv
 ```
 
-## 5) Re-Add Public Invoker (Required After Some Deploys)
+## 4) Re-Add Public Invoker (Required After Some Deploys)
 
 ```bash
 gcloud run services add-iam-policy-binding "$SERVICE" \
@@ -56,6 +106,11 @@ gcloud run services add-iam-policy-binding "$SERVICE" \
 ```
 
 ## 6) Lock Cloud Armor to Your IP Only
+
+You may have to create policy once in each env
+```bash
+gcloud compute security-policies create "$ARMOR_POLICY_NAME"
+```
 
 ```bash
 gcloud compute security-policies rules update 1000 \
