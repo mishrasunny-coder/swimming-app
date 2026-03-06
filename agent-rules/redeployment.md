@@ -84,6 +84,21 @@ gcloud artifacts repositories add-iam-policy-binding "$REPO" \
 
 ## 3) Deploy Cloud Run (LB-Compatible Ingress + Mounted Data)
 
+ONLY for dev you need to first build and then deploy
+```bash
+export ENV=dev or stage or prod
+export BUILD_SA_NAME="swimming-app-${ENV}-build-sa"
+# export SA_NAME="swimming-app-${ENV}-sa"
+export BUILD_SA_EMAIL="${BUILD_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+# export BUILD_SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud builds submit \
+  --project="$PROJECT_ID" \
+  --service-account="projects/${PROJECT_ID}/serviceAccounts/${BUILD_SA_EMAIL}" \
+  --config=cloudbuild.yaml \
+  --substitutions=_REGION="$REGION",_REPO="$REPO",_IMAGE_NAME="$IMAGE_NAME",_TAG="$TAG" \
+  .
+```
+
 ```bash
 gcloud run deploy "$SERVICE" \
   --project="$PROJECT_ID" \
