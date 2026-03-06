@@ -149,6 +149,7 @@ Use this path only in environment(s) where images are built and pushed.
 ### 6.1 Create dedicated build service account
 
 ```bash
+export ENV=dev or stage or prod
 export BUILD_SA_NAME="swimming-app-${ENV}-build-sa"
 export BUILD_SA_EMAIL="${BUILD_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -163,6 +164,12 @@ gcloud iam service-accounts create "$BUILD_SA_NAME" \
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA_EMAIL}" \
   --role="roles/storage.objectAdmin"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  "swimming-app-dev-build-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --project="$PROJECT_ID" \
+  --member="user:xxxxx@gmail.com" \
+  --role="roles/iam.serviceAccountUser"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA_EMAIL}" \
@@ -180,7 +187,9 @@ gcloud artifacts repositories add-iam-policy-binding "$REPO" \
 ```bash
 gcloud builds submit \
   --project="$PROJECT_ID" \
+  --region="$REGION" \
   --service-account="projects/${PROJECT_ID}/serviceAccounts/${BUILD_SA_EMAIL}" \
+  --gcs-log-dir="gs://${PROJECT_ID}_cloudbuild/logs" \
   --config=cloudbuild.yaml \
   --substitutions=_REGION="$REGION",_REPO="$REPO",_IMAGE_NAME="$IMAGE_NAME",_TAG="$TAG" \
   .
