@@ -168,7 +168,7 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud iam service-accounts add-iam-policy-binding \
   "swimming-app-dev-build-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
   --project="$PROJECT_ID" \
-  --member="user:mishrasunny123185@gmail.com" \
+  --member="user:xxxxx@gmail.com" \
   --role="roles/iam.serviceAccountUser"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
