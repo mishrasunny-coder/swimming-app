@@ -194,3 +194,25 @@ Before merging to `main`, verify:
 - the build SA has `roles/iam.serviceAccountUser` on the runtime SA
 
 After that, merging a PR to `main` should trigger the dev CD workflow automatically.
+
+## 11) Troubleshooting
+
+If the workflow fails in the Cloud Build step with an error like:
+
+```text
+INVALID_ARGUMENT: if 'build.service_account' is specified, the build must either ...
+```
+
+Cause:
+- the workflow is using a custom build service account
+- Cloud Build requires an explicit logging mode when a custom build service account is set
+
+Fix:
+- make sure `cloudbuild.yaml` includes:
+
+```yaml
+options:
+  logging: CLOUD_LOGGING_ONLY
+```
+
+This keeps build logs in Cloud Logging and avoids extra logs bucket setup.
