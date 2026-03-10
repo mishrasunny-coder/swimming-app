@@ -308,3 +308,55 @@ Avoid using:
 Reason:
 - `sha-*` is immutable and exact
 - `dev-vx` is only an environment sequence tag
+
+## 8) Troubleshooting
+
+If the promotion workflow fails during `gcloud run deploy` with:
+
+```text
+PERMISSION_DENIED: Permission 'artifactregistry.repositories.downloadArtifacts' denied
+```
+
+Cause:
+- the image is stored in the dev Artifact Registry project
+- the target deployer service account can deploy Cloud Run in stage/prod
+- but it cannot read the image from the dev Artifact Registry repo during deploy
+
+Why this fix is required:
+- Cloud Run service agent needs repo read access at runtime
+- the deployer service account also needs repo read access because `gcloud run deploy` resolves and validates the image during deployment
+
+Grant reader access to the stage deployer SA on the dev repo:
+
+```bash
+export DEV_PROJECT_ID="swim-dev-123185"
+export REGION="us-central1"
+export REPO="swimming-app"
+export STAGE_DEPLOYER_SA="swimming-app-stage-deployer@swim-stage-123185.iam.gserviceaccount.com"
+
+gcloud artifacts repositories add-iam-policy-binding "$REPO" \
+  --project="$DEV_PROJECT_ID" \
+  --location="$REGION" \
+  --member="serviceAccount:${STAGE_DEPLOYER_SA}" \
+  --role="roles/artifactregistry.reader"
+```
+
+Grant reader access to the prod deployer SA on the dev repo:
+
+```bash
+export PROD_DEPLOYER_SA="swimming-app-prod-deployer@swim-prod-123185.iam.gserviceaccount.com"
+
+gcloud artifacts repositories add-iam-policy-binding "$REPO" \
+  --project="$DEV_PROJECT_ID" \
+  --location="$REGION" \
+  --member="serviceAccount:${PROD_DEPLOYER_SA}" \
+  --role="roles/artifactregistry.reader"
+```
+
+Optional verification:
+
+```bash
+gcloud artifacts repositories get-iam-policy "$REPO" \
+  --project="$DEV_PROJECT_ID" \
+  --location="$REGION"
+```
