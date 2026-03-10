@@ -142,73 +142,73 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
   --role="roles/storage.objectViewer"
 ```
 
-## 6) Path A: Build + Deploy (Typically Dev)
+## 6) Path A: Automated Dev CD (GitHub Actions -> Cloud Build -> Cloud Run)
 
-Use this path only in environment(s) where images are built and pushed.
+For `dev`, deployment should happen automatically whenever a PR is merged to `main`.
+The repository now uses `.github/workflows/cd-dev.yml` for that path.
 
-### 6.1 Create dedicated build service account
+This workflow assumes the following infrastructure already exists in GCP:
+- Artifact Registry repository
+- Cloud Run service
+- Runtime service account
+- Cloud Build service account
+- Load balancer, serverless NEG, backend service, and Cloud Armor policy
 
-```bash
-export ENV=dev or stage or prod
-export BUILD_SA_NAME="swimming-app-${ENV}-build-sa"
-export BUILD_SA_EMAIL="${BUILD_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+### 6.1 What the CD workflow does
 
-gcloud iam service-accounts create "$BUILD_SA_NAME" \
-  --display-name="Swimming App ${ENV} build SA" \
-  --project="$PROJECT_ID"
-```
+On every `push` to `main`:
 
-### 6.2 Grant build SA minimum required roles
+1. Authenticates to GCP using GitHub OIDC.
+2. Computes the next monotonic `dev-vx` tag from Artifact Registry.
+3. Builds once in Cloud Build and pushes two tags:
+   - `dev-vx`
+   - `sha-<12-char-commit>`
+4. Deploys Cloud Run to the new `dev-vx` image.
+5. Forces Cloud Run ingress to `internal-and-cloud-load-balancing`.
+6. Ensures `allUsers` has `roles/run.invoker` so the external HTTPS load balancer can reach the service.
+7. Optionally re-attaches the existing Cloud Armor policy to the existing backend service.
 
-```bash
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${BUILD_SA_EMAIL}" \
-  --role="roles/storage.objectAdmin"
+### 6.2 Required GitHub configuration
 
-gcloud iam service-accounts add-iam-policy-binding \
-  "swimming-app-dev-build-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --project="$PROJECT_ID" \
-  --member="user:xxxxx@gmail.com" \
-  --role="roles/iam.serviceAccountUser"
+Repository or environment variables:
+- `GCP_PROJECT_ID_DEV`
+- `GCP_REGION`
+- `ARTIFACT_REPO`
+- `IMAGE_NAME`
+- `CLOUD_RUN_SERVICE`
+- `RUNTIME_SA_EMAIL`
+- `BUILD_SERVICE_ACCOUNT_EMAIL`
+- `SWIM_DATA_BUCKET`
+- `BACKEND_SERVICE_NAME` (optional, if you want workflow to re-attach existing Armor policy)
+- `ARMOR_POLICY_NAME` (optional, used with `BACKEND_SERVICE_NAME`)
 
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${BUILD_SA_EMAIL}" \
-  --role="roles/logging.logWriter"
+Repository or environment secrets:
+- `WIF_PROVIDER`
+- `WIF_SERVICE_ACCOUNT`
 
-gcloud artifacts repositories add-iam-policy-binding "$REPO" \
-  --project="$PROJECT_ID" \
-  --location="$REGION" \
-  --member="serviceAccount:${BUILD_SA_EMAIL}" \
-  --role="roles/artifactregistry.writer"
-```
+### 6.3 Required GCP permissions for the GitHub deployer identity
 
-### 6.3 Build and push image
+The service account used in `WIF_SERVICE_ACCOUNT` must already have:
+- `roles/run.admin`
+- `roles/iam.serviceAccountUser` on the runtime service account
+- `roles/cloudbuild.builds.editor` or equivalent permission to run builds
+- permission to use the specified Cloud Build service account
+- `roles/compute.loadBalancerAdmin` if workflow will re-attach Cloud Armor to the backend service
 
-```bash
-gcloud builds submit \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --service-account="projects/${PROJECT_ID}/serviceAccounts/${BUILD_SA_EMAIL}" \
-  --gcs-log-dir="gs://${PROJECT_ID}_cloudbuild/logs" \
-  --config=cloudbuild.yaml \
-  --substitutions=_REGION="$REGION",_REPO="$REPO",_IMAGE_NAME="$IMAGE_NAME",_TAG="$TAG" \
-  .
-```
+The Cloud Build service account in `BUILD_SERVICE_ACCOUNT_EMAIL` must already have:
+- `roles/artifactregistry.writer`
+- `roles/logging.logWriter`
 
-### 6.4 Deploy Cloud Run
+### 6.4 Access model
 
-```bash
-gcloud run deploy "$SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --image "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:${TAG}" \
-  --service-account="$SA_EMAIL" \
-  --port=8080 \
-  --add-volume name=data,type=cloud-storage,bucket="$BUCKET" \
-  --add-volume-mount volume=data,mount-path=/mnt/data \
-  --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv \
-  --no-allow-unauthenticated
-```
+This workflow intentionally deploys Cloud Run with:
+- ingress = `internal-and-cloud-load-balancing`
+- IAM invoker = `allUsers`
+
+That combination is correct for the load-balancer model because:
+- direct public internet access is blocked by ingress mode
+- traffic is expected to flow through the external HTTPS load balancer
+- Cloud Armor remains the IP-based security boundary at the load balancer
 
 ## 7) Path B: Promotion Deploy (Typically Stage / Prod)
 
