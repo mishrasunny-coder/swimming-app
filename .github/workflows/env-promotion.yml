@@ -1,0 +1,190 @@
+name: Environment Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Promotion target"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Existing dev image tag to promote, preferably sha-<commit>"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: promote-${{ github.event.inputs.target_environment }}
+  cancel-in-progress: false
+
+jobs:
+  guard-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure workflow is run from main only
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow can only run from main." >&2
+            exit 1
+          fi
+
+  promote-staging:
+    if: github.event.inputs.target_environment == 'staging'
+    needs: guard-main
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID_STAGING }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+      SOURCE_IMAGE_PROJECT_ID: ${{ vars.GCP_PROJECT_ID_DEV }}
+      REPO: ${{ vars.ARTIFACT_REPO }}
+      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+      RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL_STAGING }}
+      SWIM_DATA_BUCKET: ${{ vars.SWIM_DATA_BUCKET_STAGING }}
+      IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+    steps:
+      - name: Validate staging variables
+        run: |
+          set -euo pipefail
+          required=(PROJECT_ID REGION SERVICE SOURCE_IMAGE_PROJECT_ID REPO IMAGE_NAME RUNTIME_SA_EMAIL SWIM_DATA_BUCKET IMAGE_TAG)
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required staging variable: $key" >&2
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_STAGING }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT_STAGING }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Deploy promoted image to staging
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image "${REGION}-docker.pkg.dev/${SOURCE_IMAGE_PROJECT_ID}/${REPO}/${IMAGE_NAME}:${IMAGE_TAG}" \
+            --service-account="${RUNTIME_SA_EMAIL}" \
+            --port=8080 \
+            --add-volume "name=data,type=cloud-storage,bucket=${SWIM_DATA_BUCKET}" \
+            --add-volume-mount "volume=data,mount-path=/mnt/data" \
+            --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv \
+            --ingress=internal-and-cloud-load-balancing
+
+      - name: Verify staging deployment
+        id: verify
+        run: |
+          set -euo pipefail
+          READY_REVISION="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.latestReadyRevisionName)')"
+          SERVICE_URL="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          echo "ready_revision=${READY_REVISION}" >> "$GITHUB_OUTPUT"
+          echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Promotion summary
+        run: |
+          cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+          ## Staging Promotion Complete
+          - Image: `${{ env.REGION }}-docker.pkg.dev/${{ env.SOURCE_IMAGE_PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}`
+          - Cloud Run service: `${{ env.SERVICE }}`
+          - Ready revision: `${{ steps.verify.outputs.ready_revision }}`
+          - URL: `${{ steps.verify.outputs.service_url }}`
+          SUMMARY
+
+  promote-production:
+    if: github.event.inputs.target_environment == 'production'
+    needs: guard-main
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID_PRODUCTION }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+      SOURCE_IMAGE_PROJECT_ID: ${{ vars.GCP_PROJECT_ID_DEV }}
+      REPO: ${{ vars.ARTIFACT_REPO }}
+      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+      RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL_PRODUCTION }}
+      SWIM_DATA_BUCKET: ${{ vars.SWIM_DATA_BUCKET_PRODUCTION }}
+      IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+    steps:
+      - name: Validate production variables
+        run: |
+          set -euo pipefail
+          required=(PROJECT_ID REGION SERVICE SOURCE_IMAGE_PROJECT_ID REPO IMAGE_NAME RUNTIME_SA_EMAIL SWIM_DATA_BUCKET IMAGE_TAG)
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required production variable: $key" >&2
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRODUCTION }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT_PRODUCTION }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Deploy promoted image to production
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image "${REGION}-docker.pkg.dev/${SOURCE_IMAGE_PROJECT_ID}/${REPO}/${IMAGE_NAME}:${IMAGE_TAG}" \
+            --service-account="${RUNTIME_SA_EMAIL}" \
+            --port=8080 \
+            --add-volume "name=data,type=cloud-storage,bucket=${SWIM_DATA_BUCKET}" \
+            --add-volume-mount "volume=data,mount-path=/mnt/data" \
+            --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv \
+            --ingress=internal-and-cloud-load-balancing
+
+      - name: Verify production deployment
+        id: verify
+        run: |
+          set -euo pipefail
+          READY_REVISION="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.latestReadyRevisionName)')"
+          SERVICE_URL="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          echo "ready_revision=${READY_REVISION}" >> "$GITHUB_OUTPUT"
+          echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Promotion summary
+        run: |
+          cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+          ## Production Promotion Complete
+          - Image: `${{ env.REGION }}-docker.pkg.dev/${{ env.SOURCE_IMAGE_PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}`
+          - Cloud Run service: `${{ env.SERVICE }}`
+          - Ready revision: `${{ steps.verify.outputs.ready_revision }}`
+          - URL: `${{ steps.verify.outputs.service_url }}`
+          SUMMARY
