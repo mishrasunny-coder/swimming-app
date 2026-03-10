@@ -1,0 +1,151 @@
+name: CD Dev Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cd-dev-main
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID_DEV }}
+  REGION: ${{ vars.GCP_REGION }}
+  REPO: ${{ vars.ARTIFACT_REPO }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+  SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+  RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
+  BUILD_SERVICE_ACCOUNT_EMAIL: ${{ vars.BUILD_SERVICE_ACCOUNT_EMAIL }}
+  SWIM_DATA_BUCKET: ${{ vars.SWIM_DATA_BUCKET }}
+  BACKEND_SERVICE_NAME: ${{ vars.BACKEND_SERVICE_NAME }}
+  ARMOR_POLICY_NAME: ${{ vars.ARMOR_POLICY_NAME }}
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required vars
+        run: |
+          set -euo pipefail
+          required=(PROJECT_ID REGION REPO IMAGE_NAME SERVICE RUNTIME_SA_EMAIL BUILD_SERVICE_ACCOUNT_EMAIL SWIM_DATA_BUCKET)
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required GitHub variable: $key" >&2
+              exit 1
+            fi
+          done
+          if [[ -z "${{ secrets.WIF_PROVIDER }}" || -z "${{ secrets.WIF_SERVICE_ACCOUNT }}" ]]; then
+            echo "Missing required GitHub secrets: WIF_PROVIDER and/or WIF_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Compute next dev tag and SHA tag
+        id: tags
+        run: |
+          set -euo pipefail
+          IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${IMAGE_NAME}"
+          NEXT_TAG="$(./scripts/next-dev-tag.sh "$IMAGE_BASE")"
+          SHA_TAG="sha-${GITHUB_SHA::12}"
+
+          echo "image_base=${IMAGE_BASE}" >> "$GITHUB_OUTPUT"
+          echo "next_tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image with Cloud Build
+        run: |
+          set -euo pipefail
+          DEV_TAG="${{ steps.tags.outputs.next_tag }}"
+          SHA_TAG="${{ steps.tags.outputs.sha_tag }}"
+
+          gcloud builds submit \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --service-account="projects/${PROJECT_ID}/serviceAccounts/${BUILD_SERVICE_ACCOUNT_EMAIL}" \
+            --config=cloudbuild.yaml \
+            --substitutions=_REGION="${REGION}",_REPO="${REPO}",_IMAGE_NAME="${IMAGE_NAME}",_TAG="${DEV_TAG}",_SHA_TAG="${SHA_TAG}" \
+            .
+
+      - name: Deploy to Cloud Run (dev)
+        id: deploy
+        run: |
+          set -euo pipefail
+          IMAGE_BASE="${{ steps.tags.outputs.image_base }}"
+          DEV_TAG="${{ steps.tags.outputs.next_tag }}"
+
+          gcloud run deploy "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image "${IMAGE_BASE}:${DEV_TAG}" \
+            --service-account="${RUNTIME_SA_EMAIL}" \
+            --ingress=internal-and-cloud-load-balancing \
+            --port=8080 \
+            --add-volume "name=data,type=cloud-storage,bucket=${SWIM_DATA_BUCKET}" \
+            --add-volume-mount "volume=data,mount-path=/mnt/data" \
+            --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv
+
+      - name: Ensure Cloud Run invoker is allUsers (LB path protected by Armor)
+        run: |
+          set -euo pipefail
+          gcloud run services add-iam-policy-binding "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --member="allUsers" \
+            --role="roles/run.invoker"
+
+      - name: Re-attach existing Cloud Armor policy to backend service
+        if: env.BACKEND_SERVICE_NAME != '' && env.ARMOR_POLICY_NAME != ''
+        run: |
+          set -euo pipefail
+          gcloud compute backend-services update "${BACKEND_SERVICE_NAME}" \
+            --global \
+            --security-policy="${ARMOR_POLICY_NAME}"
+
+      - name: Verify deployed revision
+        id: verify
+        run: |
+          set -euo pipefail
+          READY_REVISION="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.latestReadyRevisionName)')"
+          SERVICE_URL="$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+
+          echo "ready_revision=${READY_REVISION}" >> "$GITHUB_OUTPUT"
+          echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Deployment summary
+        run: |
+          cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+          ## Dev Deployment Complete
+          - Image: `${{ steps.tags.outputs.image_base }}:${{ steps.tags.outputs.next_tag }}`
+          - Immutable tag: `${{ steps.tags.outputs.image_base }}:${{ steps.tags.outputs.sha_tag }}`
+          - Cloud Run service: `${{ env.SERVICE }}`
+          - Ready revision: `${{ steps.verify.outputs.ready_revision }}`
+          - URL: `${{ steps.verify.outputs.service_url }}`
+          - Ingress mode: `internal-and-cloud-load-balancing`
+          - Invoker role: `allUsers` has `roles/run.invoker`
+          SUMMARY
