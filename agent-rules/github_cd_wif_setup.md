@@ -216,3 +216,34 @@ options:
 ```
 
 This keeps build logs in Cloud Logging and avoids extra logs bucket setup.
+
+If the workflow fails in the Cloud Build step with an error like:
+
+```text
+PERMISSION_DENIED: caller does not have permission to act as service account ...
+```
+
+Cause:
+- GitHub successfully impersonated the build service account through WIF
+- the workflow then asked Cloud Build to run using that same service account
+- the build service account does not have `roles/iam.serviceAccountUser` on itself
+
+Check current bindings:
+
+```bash
+gcloud iam service-accounts get-iam-policy "$BUILD_SA" \
+  --project="$PROJECT_ID" \
+  --flatten="bindings[].members" \
+  --format='table(bindings.role,bindings.members)'
+```
+
+Fix:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding "$BUILD_SA" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:${BUILD_SA}" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+This allows the build service account to act as itself when `gcloud builds submit --service-account=...` is used.
