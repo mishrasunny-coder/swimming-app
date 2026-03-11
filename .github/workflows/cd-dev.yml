@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'terraform/**'
 
 permissions:
   contents: read
@@ -22,8 +24,6 @@ env:
   RUNTIME_SA_EMAIL: ${{ vars.RUNTIME_SA_EMAIL }}
   BUILD_SERVICE_ACCOUNT_EMAIL: ${{ vars.BUILD_SERVICE_ACCOUNT_EMAIL }}
   SWIM_DATA_BUCKET: ${{ vars.SWIM_DATA_BUCKET }}
-  BACKEND_SERVICE_NAME: ${{ vars.BACKEND_SERVICE_NAME }}
-  ARMOR_POLICY_NAME: ${{ vars.ARMOR_POLICY_NAME }}
 
 jobs:
   build-push-deploy:
@@ -104,23 +104,6 @@ jobs:
             --add-volume-mount "volume=data,mount-path=/mnt/data" \
             --set-env-vars SWIM_DATA_PATH=/mnt/data/swim_data.csv
 
-      - name: Ensure Cloud Run invoker is allUsers (LB path protected by Armor)
-        run: |
-          set -euo pipefail
-          gcloud run services add-iam-policy-binding "${SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --member="allUsers" \
-            --role="roles/run.invoker"
-
-      - name: Re-attach existing Cloud Armor policy to backend service
-        if: env.BACKEND_SERVICE_NAME != '' && env.ARMOR_POLICY_NAME != ''
-        run: |
-          set -euo pipefail
-          gcloud compute backend-services update "${BACKEND_SERVICE_NAME}" \
-            --global \
-            --security-policy="${ARMOR_POLICY_NAME}"
-
       - name: Verify deployed revision
         id: verify
         run: |
@@ -147,5 +130,4 @@ jobs:
           - Ready revision: `${{ steps.verify.outputs.ready_revision }}`
           - URL: `${{ steps.verify.outputs.service_url }}`
           - Ingress mode: `internal-and-cloud-load-balancing`
-          - Invoker role: `allUsers` has `roles/run.invoker`
           SUMMARY

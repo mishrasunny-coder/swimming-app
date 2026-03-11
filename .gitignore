@@ -211,3 +211,14 @@ CSV/*.csv
 codex/*.csv
 PDF/*.pdf
 .DS_Store
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars.local
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
