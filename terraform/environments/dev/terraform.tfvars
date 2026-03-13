@@ -25,8 +25,8 @@ ar_reader_members = [
   "serviceAccount:swimming-app-prod-sa@swim-prod-123185.iam.gserviceaccount.com",
 ]
 
-# Set allowed_ip_ranges in a local override file (terraform.tfvars.local)
-# or via -var to permit your current IP:
+# Set allowed_ip_ranges in a local auto-loaded override file
+# (terraform.tfvars.local.auto.tfvars) or via -var to permit your current IP:
 #   allowed_ip_ranges = ["x.x.x.x/32"]
 #
 # If you later switch dev back to IAP, also set:

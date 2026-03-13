@@ -217,10 +217,10 @@ PDF/*.pdf
 *.tfstate
 *.tfstate.backup
 *.tfvars.local
+terraform/environments/*/terraform.tfvars.local.auto.tfvars
 crash.log
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 terraform/environments/*/.terraform.lock.hcl
-
