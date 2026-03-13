@@ -7,6 +7,8 @@ domain_name = "swim-dev.ssms.info"
 
 github_repo = "mishrasunny-coder/swimming-app"
 
+access_mode = "ip_restricted"
+
 lb_name_prefix = "swim-dev"
 
 enable_http_redirect = true
@@ -23,6 +25,10 @@ ar_reader_members = [
   "serviceAccount:swimming-app-prod-sa@swim-prod-123185.iam.gserviceaccount.com",
 ]
 
-# IMPORTANT: Set allowed_ip_ranges in a local override file (terraform.tfvars.local)
-# or via -var flag to avoid committing your IP address:
+# Set allowed_ip_ranges in a local override file (terraform.tfvars.local)
+# or via -var to permit your current IP:
 #   allowed_ip_ranges = ["x.x.x.x/32"]
+#
+# If you later switch dev back to IAP, also set:
+#   access_mode            = "iap"
+#   iap_access_group_email = "group@your-managed-domain"

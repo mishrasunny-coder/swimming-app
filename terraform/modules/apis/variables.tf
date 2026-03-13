@@ -11,6 +11,7 @@ variable "services" {
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "iam.googleapis.com",
+    "iap.googleapis.com",
     "storage.googleapis.com",
     "compute.googleapis.com",
     "certificatemanager.googleapis.com",

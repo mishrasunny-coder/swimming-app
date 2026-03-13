@@ -39,8 +39,26 @@ resource "google_compute_backend_service" "default" {
   protocol              = "HTTP"
   security_policy       = var.security_policy_self_link
 
+  dynamic "iap" {
+    for_each = var.enable_iap ? [1] : []
+    content {
+      oauth2_client_id     = var.iap_oauth_client_id
+      oauth2_client_secret = var.iap_oauth_client_secret
+    }
+  }
+
   backend {
     group = google_compute_region_network_endpoint_group.serverless.id
+  }
+
+  lifecycle {
+    precondition {
+      condition = !var.enable_iap || (
+        trimspace(var.iap_oauth_client_id) != "" &&
+        trimspace(var.iap_oauth_client_secret) != ""
+      )
+      error_message = "IAP requires both iap_oauth_client_id and iap_oauth_client_secret."
+    }
   }
 }
 

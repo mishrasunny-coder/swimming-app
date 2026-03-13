@@ -5,6 +5,10 @@ locals {
   bucket_name          = "${var.project_id}-swim-data"
 }
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
 # ── APIs ─────────────────────────────────────────────────────
 
 module "apis" {
@@ -32,6 +36,14 @@ module "service_accounts" {
 
   deploy_sa_project_roles = [
     "roles/run.admin",
+    "roles/storage.admin",
+    "roles/artifactregistry.admin",
+    "roles/compute.admin",
+    "roles/iap.admin",
+    "roles/serviceusage.serviceUsageAdmin",
+    "roles/resourcemanager.projectIamAdmin",
+    "roles/iam.serviceAccountAdmin",
+    "roles/iam.workloadIdentityPoolAdmin",
   ]
 
   grant_self_impersonation = false
@@ -76,7 +88,8 @@ module "cloud_run" {
   service_name          = "swimming-app"
   runtime_sa_email      = local.runtime_sa_email
   bucket_name           = local.bucket_name
-  allow_unauthenticated = true
+  access_mode           = var.access_mode
+  allow_unauthenticated = var.access_mode != "iap"
 
   depends_on = [module.apis]
 }
@@ -89,6 +102,7 @@ module "cloud_armor" {
 
   policy_name       = "swim-stage-armor"
   allowed_ip_ranges = var.allowed_ip_ranges
+  policy_mode       = var.access_mode == "iap" ? "iap_fronted" : "ip_restricted"
 
   depends_on = [module.apis]
 }
@@ -116,5 +130,22 @@ module "load_balancer" {
   cloud_run_service_name    = module.cloud_run.service_name
   security_policy_self_link = module.cloud_armor.policy_self_link
   ssl_certificate_self_link = module.ssl.certificate_self_link
+  enable_iap                = var.access_mode == "iap"
+  iap_oauth_client_id       = var.iap_oauth_client_id
+  iap_oauth_client_secret   = var.iap_oauth_client_secret
   enable_http_redirect      = var.enable_http_redirect
+}
+
+# ── IAP ──────────────────────────────────────────────────────
+
+module "iap" {
+  source = "../../modules/iap"
+
+  enabled                = var.access_mode == "iap"
+  project_id             = var.project_id
+  project_number         = data.google_project.current.number
+  region                 = var.region
+  cloud_run_service_name = module.cloud_run.service_name
+  backend_service_name   = module.load_balancer.backend_service_name
+  access_group_email     = var.iap_access_group_email
 }

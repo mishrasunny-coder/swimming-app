@@ -3,7 +3,7 @@ resource "google_compute_security_policy" "policy" {
   project = var.project_id
 
   dynamic "rule" {
-    for_each = length(var.allowed_ip_ranges) > 0 ? [1] : []
+    for_each = var.policy_mode == "ip_restricted" && length(var.allowed_ip_ranges) > 0 ? [1] : []
     content {
       action   = "allow"
       priority = 1000
@@ -20,7 +20,7 @@ resource "google_compute_security_policy" "policy" {
   }
 
   rule {
-    action   = "deny(403)"
+    action   = var.policy_mode == "iap_fronted" ? "allow" : "deny(403)"
     priority = 2147483647
 
     match {
@@ -30,6 +30,6 @@ resource "google_compute_security_policy" "policy" {
       }
     }
 
-    description = "Default deny all"
+    description = var.policy_mode == "iap_fronted" ? "Default allow so IAP can enforce identity" : "Default deny all"
   }
 }

@@ -291,3 +291,27 @@ terraform import 'module.load_balancer.google_compute_global_forwarding_rule.htt
 6. **Order matters for some resources.** Import APIs first, then SAs, then
    resources that depend on them. The order in this document follows the
    correct dependency chain.
+
+7. **IAP OAuth is a manual bootstrap.** Create or verify the OAuth consent
+   screen and OAuth client outside Terraform, then provide the values to
+   Terraform via `TF_VAR_iap_oauth_client_id` and
+   `TF_VAR_iap_oauth_client_secret` when `access_mode = "iap"`.
+
+8. **IAP replaces Cloud Armor as the identity gate.** In `access_mode = "iap"`
+   the Cloud Armor policy should allow public traffic so IAP can challenge
+   users. Authorization is enforced by the environment-specific Google Group.
+
+9. **The post-merge Terraform workflow expects OAuth secrets in GitHub.**
+   Configure `IAP_OAUTH_CLIENT_ID` and `IAP_OAUTH_CLIENT_SECRET` in each GitHub
+   Environment before merging Terraform changes to `main`.
+
+## IAP Migration Resources
+
+When migrating an existing environment to `access_mode = "iap"`, Terraform will
+also manage these additional resources:
+
+- `module.iap.google_iap_web_backend_service_iam_member.group_access[0]`
+- `module.iap.google_cloud_run_v2_service_iam_member.iap_invoker[0]`
+
+Use those Terraform addresses if the IAP access binding or Cloud Run invoker
+binding already exists and needs importing before the first apply.
