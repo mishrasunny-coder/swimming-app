@@ -48,8 +48,19 @@ variable "ingress" {
   default     = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 }
 
+variable "access_mode" {
+  description = "Access mode for the service: ip_restricted or iap"
+  type        = string
+  default     = "ip_restricted"
+
+  validation {
+    condition     = contains(["ip_restricted", "iap"], var.access_mode)
+    error_message = "access_mode must be one of: ip_restricted, iap."
+  }
+}
+
 variable "allow_unauthenticated" {
-  description = "Grant allUsers roles/run.invoker (required for LB access model)"
+  description = "Grant allUsers roles/run.invoker. Ignored when access_mode is iap."
   type        = bool
   default     = true
 }

@@ -1,0 +1,162 @@
+name: Apply Terraform Changes
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**/*.tf"
+      - "terraform/**/*.tfvars"
+      - "terraform/**/*.tfvars.json"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  detect_changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect impacted Terraform environments
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.before }}"
+          HEAD_SHA="${{ github.sha }}"
+
+          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-list --max-count=1 "${HEAD_SHA}^" 2>/dev/null || true)"
+          fi
+
+          if [[ -z "${BASE_SHA}" ]]; then
+            git ls-files terraform > changed_files.txt
+          else
+            git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" -- terraform > changed_files.txt
+          fi
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          changed_files = [
+              line.strip()
+              for line in Path("changed_files.txt").read_text().splitlines()
+              if line.strip()
+          ]
+
+          impacted = set()
+          for path in changed_files:
+              if path.startswith("terraform/modules/"):
+                  impacted.update(["dev", "staging", "production"])
+                  continue
+              if path.startswith("terraform/environments/dev/"):
+                  impacted.add("dev")
+                  continue
+              if path.startswith("terraform/environments/staging/"):
+                  impacted.add("staging")
+                  continue
+              if path.startswith("terraform/environments/production/"):
+                  impacted.add("production")
+
+          ordered = [env for env in ["dev", "staging", "production"] if env in impacted]
+          matrix = {"environment": ordered}
+          has_changes = "true" if ordered else "false"
+
+          output_path = os.environ["GITHUB_OUTPUT"]
+          with open(output_path, "a", encoding="utf-8") as fh:
+              fh.write(f"matrix={json.dumps(matrix)}\n")
+              fh.write(f"has_changes={has_changes}\n")
+          PY
+
+      - name: Summarize impacted environments
+        run: |
+          echo "Impacted environments: ${{ steps.detect.outputs.matrix }}" >> "$GITHUB_STEP_SUMMARY"
+
+  terraform_apply:
+    needs: detect_changes
+    if: needs.detect_changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect_changes.outputs.matrix) }}
+    environment: ${{ matrix.environment }}
+    concurrency:
+      group: terraform-apply-${{ matrix.environment }}
+      cancel-in-progress: false
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_iap_oauth_client_id: ${{ secrets.IAP_OAUTH_CLIENT_ID }}
+      TF_VAR_iap_oauth_client_secret: ${{ secrets.IAP_OAUTH_CLIENT_SECRET }}
+      WIF_PROVIDER: ${{ matrix.environment == 'dev' && secrets.WIF_PROVIDER || matrix.environment == 'staging' && secrets.WIF_PROVIDER_STAGING || secrets.WIF_PROVIDER_PRODUCTION }}
+      WIF_SERVICE_ACCOUNT: ${{ matrix.environment == 'dev' && secrets.WIF_SERVICE_ACCOUNT || matrix.environment == 'staging' && secrets.WIF_SERVICE_ACCOUNT_STAGING || secrets.WIF_SERVICE_ACCOUNT_PRODUCTION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect access mode
+        id: access_mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          tfvars="terraform/environments/${{ matrix.environment }}/terraform.tfvars"
+          mode="$(sed -nE 's/^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$tfvars" | tail -n1)"
+
+          if [[ -z "${mode}" ]]; then
+            mode="ip_restricted"
+          fi
+
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required secrets
+        env:
+          ACCESS_MODE: ${{ steps.access_mode.outputs.mode }}
+        run: |
+          set -euo pipefail
+          required=(WIF_PROVIDER WIF_SERVICE_ACCOUNT)
+
+          if [[ "${ACCESS_MODE}" == "iap" ]]; then
+            required+=(TF_VAR_iap_oauth_client_id TF_VAR_iap_oauth_client_secret)
+          fi
+
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required secret for ${key}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: terraform/environments/${{ matrix.environment }}
+        run: terraform init -input=false -no-color
+
+      - name: Terraform validate
+        working-directory: terraform/environments/${{ matrix.environment }}
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        working-directory: terraform/environments/${{ matrix.environment }}
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      - name: Terraform apply
+        working-directory: terraform/environments/${{ matrix.environment }}
+        run: terraform apply -input=false -no-color -auto-approve tfplan

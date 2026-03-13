@@ -33,3 +33,22 @@ variable "enable_http_redirect" {
   type        = bool
   default     = true
 }
+
+variable "enable_iap" {
+  description = "Whether to enable IAP on the backend service"
+  type        = bool
+  default     = false
+}
+
+variable "iap_oauth_client_id" {
+  description = "OAuth client ID used by IAP"
+  type        = string
+  default     = ""
+}
+
+variable "iap_oauth_client_secret" {
+  description = "OAuth client secret used by IAP"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
