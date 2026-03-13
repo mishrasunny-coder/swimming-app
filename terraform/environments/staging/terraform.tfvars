@@ -13,8 +13,8 @@ lb_name_prefix = "swim-stage"
 
 enable_http_redirect = true
 
-# Set allowed_ip_ranges in a local override file (terraform.tfvars.local)
-# or via -var to permit your current IP:
+# Set allowed_ip_ranges in a local auto-loaded override file
+# (terraform.tfvars.local.auto.tfvars) or via -var to permit your current IP:
 #   allowed_ip_ranges = ["x.x.x.x/32"]
 #
 # If you later switch staging back to IAP, also set:

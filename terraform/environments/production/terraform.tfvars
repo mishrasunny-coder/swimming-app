@@ -14,7 +14,8 @@ lb_name_prefix = "swim-prod"
 
 enable_http_redirect = true
 
-# If you need to temporarily switch back to IP-restricted access, override:
+# If you need to temporarily switch back to IP-restricted access, use a local
+# auto-loaded override file (terraform.tfvars.local.auto.tfvars) or -var:
 #   access_mode       = "ip_restricted"
 #   allowed_ip_ranges = ["x.x.x.x/32"]
 #
